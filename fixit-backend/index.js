@@ -15,6 +15,9 @@ require('./sockets/tracking')(io);
 
 app.use(express.json());
 
+const panicRouter = require('./routes/panic');
+app.use('/panic', panicRouter);
+
 app.get('/', (req, res) => {
   res.send('Fixit backend is alive');
 });

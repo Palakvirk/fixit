@@ -32,10 +32,14 @@ router.post('/', async (req, res) => {
        ) sub
        JOIN mechanics m ON m.id = sub.id
        WHERE sub.distance_km <= $3
-         AND EXISTS (
-           SELECT 1 FROM mechanic_specializations ms
-           WHERE ms.mechanic_id = m.id
-             AND (ms.problem_type = $4 OR ms.problem_type = 'OTHER')
+         AND m.id_verified = true
+         AND (
+           $4 = 'FUEL_EMPTY'
+           OR EXISTS (
+             SELECT 1 FROM mechanic_specializations ms
+             WHERE ms.mechanic_id = m.id
+               AND (ms.problem_type = $4 OR ms.problem_type = 'OTHER')
+           )
          )
        ORDER BY sub.distance_km ASC
        LIMIT $5`,
