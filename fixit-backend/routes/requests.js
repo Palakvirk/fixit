@@ -5,12 +5,9 @@ const pool = require('../db/pool');
 const RADIUS_KM = 15;
 const CANDIDATE_LIMIT = 5;
 
-// Create a service request, return ranked nearby mechanic candidates
 router.post('/', async (req, res) => {
   const { driver_id, problem_type, lat, lng } = req.body;
-
   try {
-    // 1. Save the request itself
     const requestResult = await pool.query(
       `INSERT INTO service_requests (driver_id, problem_type, lat, lng)
        VALUES ($1, $2, $3, $4)
@@ -19,7 +16,6 @@ router.post('/', async (req, res) => {
     );
     const request = requestResult.rows[0];
 
-    // 2. Find nearby, available, specialization-matching mechanics
     const candidatesResult = await pool.query(
       `SELECT m.id, m.name, m.rating_avg, m.id_verified, sub.distance_km
        FROM (
@@ -46,10 +42,7 @@ router.post('/', async (req, res) => {
       [lat, lng, RADIUS_KM, problem_type, CANDIDATE_LIMIT]
     );
 
-    res.status(201).json({
-      request,
-      candidates: candidatesResult.rows,
-    });
+    res.status(201).json({ request, candidates: candidatesResult.rows });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -59,6 +52,54 @@ router.post('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM service_requests WHERE id = $1', [req.params.id]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.patch('/:id/accept', async (req, res) => {
+  const { mechanic_id } = req.body;
+  const requestId = req.params.id;
+  try {
+    const current = await pool.query('SELECT * FROM service_requests WHERE id = $1', [requestId]);
+    if (current.rows.length === 0) return res.status(404).json({ error: 'Request not found' });
+    const existing = current.rows[0];
+
+    if (existing.status !== 'PENDING') {
+      return res.status(409).json({ error: 'This job has already been taken' });
+    }
+
+    const result = await pool.query(
+      `UPDATE service_requests
+       SET mechanic_id = $1, status = 'MATCHED', version = version + 1
+       WHERE id = $2 AND version = $3
+       RETURNING *`,
+      [mechanic_id, requestId, existing.version]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(409).json({ error: 'This job has already been taken' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.patch('/:id/status', async (req, res) => {
+  const { status } = req.body;
+  try {
+    const result = await pool.query(
+      `UPDATE service_requests
+       SET status = $1::varchar,
+           completed_at = CASE WHEN $1::varchar = 'COMPLETED' THEN now() ELSE completed_at END
+       WHERE id = $2
+       RETURNING *`,
+      [status, req.params.id]
+    );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
     res.json(result.rows[0]);
   } catch (err) {
